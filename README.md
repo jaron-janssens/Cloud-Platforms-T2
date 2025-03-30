@@ -38,3 +38,8 @@ Generate registry and a registry token using a bicep file
 
 deploy the container (make sure you fill in your token)
     -   az deployment group create --resource-group jj-cloudplatforms-rg  --template-file main.bicep
+
+
+handy commands
+    to get fqdn
+    -   az network public-ip show --resource-group jj-cloudplatforms-rg --name jj-cloud-platforms-appgw-pip --query "dnsSettings.fqdn" --output tsv

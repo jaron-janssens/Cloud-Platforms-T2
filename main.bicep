@@ -39,16 +39,20 @@ param appGatewaySku string = 'Standard_v2'
 @description('SKU Tier for Application Gateway')
 param appGatewayTier string = 'Standard_v2'
 
-
-
-
-// Subnet configuration
+/*
+  Subnet configuration:
+  - `containerSubnetName`: Subnet for the container group.
+  - `appGatewaySubnetName`: Subnet for the Application Gateway.
+*/
 var containerSubnetName = 'container-subnet'
 var containerSubnetPrefix = '10.0.1.0/24'
 var appGatewaySubnetName = 'appgw-subnet'
 var appGatewaySubnetPrefix = '10.0.0.0/24'
 
-// Create a Public IP for the Application Gateway
+/*
+  Create a Public IP for the Application Gateway:
+  - This public IP is used to make the application accessible over the internet.
+*/
 resource publicIP 'Microsoft.Network/publicIPAddresses@2023-02-01' = {
   name: '${appGatewayName}-pip'
   location: location
@@ -63,7 +67,11 @@ resource publicIP 'Microsoft.Network/publicIPAddresses@2023-02-01' = {
   }
 }
 
-// Create a Virtual Network with proper subnets
+/*
+  Create a Virtual Network with subnets:
+  - `appGatewaySubnet`: Subnet for the Application Gateway.
+  - `containerSubnet`: Subnet for the container group, delegated to Azure Container Instances.
+*/
 resource vnet 'Microsoft.Network/virtualNetworks@2023-02-01' = {
   name: vnetName
   location: location
@@ -98,7 +106,10 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-02-01' = {
   }
 }
 
-// Get references to the subnets
+/*
+  Reference the Application Gateway subnet:
+  - This allows the Application Gateway to use the `appgw-subnet`.
+*/
 resource appGatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2023-02-01' existing = {
   name: '${vnetName}/${appGatewaySubnetName}'
   dependsOn: [
@@ -106,6 +117,10 @@ resource appGatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2023-02-01'
   ]
 }
 
+/*
+  Reference the Container Group subnet:
+  - This allows the container group to use the `container-subnet`.
+*/
 resource containerSubnet 'Microsoft.Network/virtualNetworks/subnets@2023-02-01' existing = {
   name: '${vnetName}/${containerSubnetName}'
   dependsOn: [
@@ -113,7 +128,75 @@ resource containerSubnet 'Microsoft.Network/virtualNetworks/subnets@2023-02-01' 
   ]
 }
 
-// Create a Network Profile for the container instance
+/*
+  Create a Network Security Group (NSG) for the container subnet:
+  - Allows HTTP traffic on port 80.
+  - Denies all other inbound traffic.
+*/
+resource containerSubnetNSG 'Microsoft.Network/networkSecurityGroups@2023-02-01' = {
+  name: '${containerSubnetName}-nsg'
+  location: location
+  properties: {
+    securityRules: [
+      {
+        name: 'AllowHTTP'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '80'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        name: 'DenyAllInbound'
+        properties: {
+          priority: 200
+          direction: 'Inbound'
+          access: 'Deny'
+          protocol: '*'
+          sourcePortRange: '*'
+          destinationPortRange: '*'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
+    ]
+  }
+}
+
+/*
+  Associate the NSG with the container subnet:
+  - Ensures the NSG rules are applied to the `container-subnet`.
+*/
+resource containerSubnetWithNSG 'Microsoft.Network/virtualNetworks/subnets@2023-02-01' = {
+  name: '${vnetName}/${containerSubnetName}'
+  properties: {
+    addressPrefix: containerSubnetPrefix
+    networkSecurityGroup: {
+      id: containerSubnetNSG.id
+    }
+    delegations: [
+      {
+        name: 'DelegationService'
+        properties: {
+          serviceName: 'Microsoft.ContainerInstance/containerGroups'
+        }
+      }
+    ]
+  }
+  dependsOn: [
+    containerSubnetNSG
+  ]
+}
+
+/*
+  Create a Network Profile for the container group:
+  - Configures the container group to use the `container-subnet`.
+*/
 resource networkProfile 'Microsoft.Network/networkProfiles@2023-02-01' = {
   name: '${name}-networkprofile'
   location: location
@@ -141,7 +224,11 @@ resource networkProfile 'Microsoft.Network/networkProfiles@2023-02-01' = {
   ]
 }
 
-// Create the Container Group with private networking
+/*
+  Create the Container Group:
+  - Runs the containerized application.
+  - Configured with private networking and diagnostics.
+*/
 resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01' = {
   name: name
   location: location
@@ -186,7 +273,11 @@ resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01'
   ]
 }
 
-// Create Application Gateway
+/*
+  Create the Application Gateway:
+  - Routes HTTP traffic to the container group.
+  - Configured with a public IP and backend pool.
+*/
 resource applicationGateway 'Microsoft.Network/applicationGateways@2023-02-01' = {
   name: appGatewayName
   location: location
@@ -285,7 +376,10 @@ resource applicationGateway 'Microsoft.Network/applicationGateways@2023-02-01' =
   ]
 }
 
-// Outputs
+/*
+  Outputs:
+  - Provide key information about the deployed resources.
+*/
 output containerGroupName string = containerGroup.name
 output containerGroupIP string = reference(containerGroup.id).ipAddress.ip
 output resourceGroupName string = resourceGroup().name
